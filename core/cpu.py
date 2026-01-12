@@ -44,8 +44,8 @@ class TomasuloCPU:
             case "FMUL.D" | "FDIV.D": rs_pool = self.rs_mul                                  
             case "LW": rs_pool = self.rs_load
             case "SW": rs_pool = self.rs_store
-            case "FLD": pass
-            case "FSD": pass
+            case "FLD": rs_pool = self.rs_load
+            case "FSD": rs_pool = self.rs_store
             case "BEQ" | "BNEZ" | "BNE": 
                 self.pc += WORD_SIZE
                 return
@@ -56,6 +56,35 @@ class TomasuloCPU:
             if not rs.busy:
                 rs.busy = True
                 rs.op = instr.name
+
+                # sign extend do imediato
+                imm = instr.imm if instr.imm < 0x8000 else instr.imm - 0x10000
+
+                # -----------------------------
+                # LOAD / STORE (LW, SW, FLD, FSD)
+                # -----------------------------
+                if instr.name in ("LW", "SW", "FLD", "FSD"):
+                    # base address vem de fp[rs] (modelo atual do projeto)
+                    rs.Vj = self.regs.fp[instr.rs] if self.regs.qi[instr.rs] is None else None
+                    rs.Qj = self.regs.qi[instr.rs]
+
+                    rs.A = imm  # offset
+
+                    if instr.name in ("LW", "FLD"):
+                        rs.dest = instr.rt
+                        rs.Vk = rs.Qk = None
+                        self.regs.qi[instr.rt] = rs.name
+                    else:  # SW / FSD
+                        rs.dest = None
+                        rs.Vk = self.regs.fp[instr.rt] if self.regs.qi[instr.rt] is None else None
+                        rs.Qk = self.regs.qi[instr.rt]
+
+                    self.pc += WORD_SIZE
+                    return
+
+                # -----------------------------
+                # FP ALU (FADD.D, FMUL.D, etc.)
+                # -----------------------------
                 rs.dest = instr.rd
 
                 rs.Vj = self.regs.fp[instr.rs] if self.regs.qi[instr.rs] is None else None
@@ -67,30 +96,37 @@ class TomasuloCPU:
                 self.regs.qi[instr.rd] = rs.name
                 self.pc += WORD_SIZE
                 return
+
         print(f"Nenhuma estação de reserva disponível para instrução em PC={self.pc}: {instr}")
-        
         
         # ---------------- Write Result (CDB) ----------------
     def write_result(self):
         for fu in [self.fu_add, self.fu_mul, self.fu_mem]:
-            
             if fu.rs and fu.rs.time == 0:
                 tag = fu.rs.name
-                
+
+                # STORE: só efetiva na memória e libera a RS
                 if fu.rs.op in ("SW", "FSD"):
-                    fu.process(fu.rs, self.memory)
+                    self.fu_mem.process(self.memory)  # usa self.fu_mem.rs internamente
                     fu.rs.clear()
                     fu.rs = None
                     return
-                
-                result = fu.process(fu.rs)
-                
+
+                # LOAD ou operação FP-ALU: gera resultado
+                if fu is self.fu_mem:
+                    result = fu.process(self.memory)
+                else:
+                    result = fu.process()
+
+                # escreve no registrador aguardando esta tag
                 for i in range(32):
                     if self.regs.qi[i] == tag:
                         self.regs.fp[i] = result
                         self.regs.qi[i] = None
 
-                for rs in self.rs_add + self.rs_mul:
+                # broadcast (CDB): atualiza dependências
+                # IMPORTANTE: incluir rs_store para stores dependentes destravarem
+                for rs in self.rs_add + self.rs_mul + self.rs_store:
                     if rs.Qj == tag:
                         rs.Vj = result
                         rs.Qj = None
@@ -102,6 +138,7 @@ class TomasuloCPU:
                 fu.rs = None
                 return
 
+    
     # ---------------- Execute ----------------
     def execute(self):
         for fu, pool in [
@@ -128,4 +165,4 @@ class TomasuloCPU:
     def finished(self):
         return self.pc >= len(self.program) * WORD_SIZE
 
-
+    

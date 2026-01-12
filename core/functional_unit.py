@@ -38,5 +38,23 @@ class MulFunctionalUnit(FunctionalUnit):
 class MemFunctionalUnit(FunctionalUnit):
     def __init__(self):
         super().__init__("FPMem", 2)
-    def process(self):
-        pass
+
+    def process(self, memory):
+        # base pronto deve estar em Vj, offset/imediato em A
+        addr = int(self.rs.Vj) + int(self.rs.A)
+
+        if self.rs.op == "LW":
+            return memory.load_word(addr)
+
+        if self.rs.op == "FLD":
+            return memory.load_double(addr)
+
+        if self.rs.op == "SW":
+            memory.store_word(addr, int(self.rs.Vk))
+            return None
+
+        if self.rs.op == "FSD":
+            memory.store_double(addr, int(self.rs.Vk))
+            return None
+
+        raise ValueError(f"Operação desconhecida na unidade de memória: {self.rs.op}")

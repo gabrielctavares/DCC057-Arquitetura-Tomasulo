@@ -4,9 +4,14 @@ class DataMemory:
         self.mem = [0] * size_bytes
 
         # --- TESTE: padrão visível ---
-        for i in range(8):
-            self.mem[i] = i + 1
+        # for i in range(8):
+        #     self.mem[i] = i + 1
 
+        for i in range(0, 249, 8):
+            self.mem[i] = i // 8 + 1
+        
+        for i in range(0, 505, 8):
+            self.mem[i] = 10.0
 
     def check_addr(self, addr, length):
         if addr < 0 or addr + length > self.size:

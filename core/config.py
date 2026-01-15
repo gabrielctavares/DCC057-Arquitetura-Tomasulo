@@ -9,11 +9,14 @@ MUL_LATENCY = 5
 MEM_LATENCY = 2
 
 
-OPCODE_TABLE = {
+OPCODE_TABLE = {    
     35: "LW",
     43: "SW",
-    49: "FLD",
-    57: "FSD",
+    55: "LD",
+    63: "SD",
+    25: "DADDUI",    
+    55: "FLD",
+    63: "FSD",
     4:  "BEQ",
     5:  "BNE",
     17: "COP1",   # Floating Point

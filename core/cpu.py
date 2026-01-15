@@ -1,7 +1,7 @@
 from core.config import ADD_LATENCY, MEM_LATENCY, MEM_RESERVATION_STATIONS, MUL_LATENCY, WORD_SIZE, ADD_RESERVATION_STATIONS, MUL_RESERVATION_STATIONS
 from core.instruction import Instruction
 from core.memory import DataMemory
-from core.registers import Registers
+from core.registers import RegistersFloat, RegistersInt
 from core.reservation_station import ReservationStation
 from core.functional_unit import  AddFunctionalUnit, MemFunctionalUnit, MulFunctionalUnit
 
@@ -11,7 +11,8 @@ class TomasuloCPU:
         self.pc = 0
         self.cycle = 0
 
-        self.regs = Registers()
+        self.regs_float = RegistersFloat()
+        self.regs_int = RegistersInt()
         self.memory = DataMemory()
 
         self.rs_add = [ReservationStation(f"Add{i}") for i in range(ADD_RESERVATION_STATIONS)]
@@ -23,6 +24,9 @@ class TomasuloCPU:
         self.fu_add = AddFunctionalUnit()
         self.fu_mul = MulFunctionalUnit()
         self.fu_mem = MemFunctionalUnit()
+        
+        self.init_state()
+        self.init_memory()
 
     def fetch(self):
         idx = self.pc // WORD_SIZE
@@ -38,17 +42,48 @@ class TomasuloCPU:
 
         print(f"Issuing instruction at PC={self.pc}: {instr}")
 
+        # ---------------- INTEIRO (SEM RS) ----------------
+        if instr.name == "DADDUI":
+            imm = instr.imm if instr.imm < 0x8000 else instr.imm - 0x10000
+            print(f"  Executando DADDUI R{instr.rt}, R{instr.rs}, {imm}")
+            self.regs_int.val[instr.rt] = self.regs_int.val[instr.rs] + imm
+            self.pc += WORD_SIZE
+            return        
+
+        if instr.name in ("BEQ", "BNE", "BNEZ"):
+            imm = instr.imm if instr.imm < 0x8000 else instr.imm - 0x10000
+
+            rs = self.regs_int.val[instr.rs]
+            rt = self.regs_int.val[instr.rt] if instr.name != "BNEZ" else None
+
+            take = False
+            if instr.name == "BEQ":
+                take = rs == rt
+            elif instr.name == "BNE":
+                take = rs != rt
+            elif instr.name == "BNEZ":
+                take = rs != 0
+
+            next_pc = self.pc + WORD_SIZE  # PC + 4
+
+            if take:
+                next_pc = next_pc + (imm << 2)
+
+            print(
+                f"  Executando {instr.name} com rs={rs} rt={rt}, "
+                f"desvio para {next_pc}"
+            )
+
+            self.pc = next_pc
+            return
+        
         rs_pool = None
         match instr.name:
             case "FADD.D" | "FSUB.D": rs_pool = self.rs_add
             case "FMUL.D" | "FDIV.D": rs_pool = self.rs_mul                                  
-            case "LW": rs_pool = self.rs_load
-            case "SW": rs_pool = self.rs_store
-            case "FLD": rs_pool = self.rs_load
-            case "FSD": rs_pool = self.rs_store
-            case "BEQ" | "BNEZ" | "BNE": 
-                self.pc += WORD_SIZE
-                return
+            case "LW" | "LD" | "FLD": rs_pool = self.rs_load
+            case "SW" | "SD" | "FSD": rs_pool = self.rs_store  
+                    
             case _:
                 raise ValueError(f"Instrução desconhecida: {instr.name}")
 
@@ -56,58 +91,95 @@ class TomasuloCPU:
             if not rs.busy:
                 rs.busy = True
                 rs.op = instr.name
-
                 # sign extend do imediato
                 imm = instr.imm if instr.imm < 0x8000 else instr.imm - 0x10000
 
                 # -----------------------------
                 # LOAD / STORE (LW, SW, FLD, FSD)
                 # -----------------------------
-                if instr.name in ("LW", "SW", "FLD", "FSD"):
-                    # base address vem de fp[rs] (modelo atual do projeto)
-                    rs.Vj = self.regs.fp[instr.rs] if self.regs.qi[instr.rs] is None else None
-                    rs.Qj = self.regs.qi[instr.rs]
+                if instr.name in ("LW", "LD", "FLD", "SW", "SD", "FSD"):
 
-                    rs.A = imm  # offset
+                    # base SEMPRE inteiro
+                    if self.regs_int.qi[instr.rs] is None:
+                        rs.Vj = self.regs_int.val[instr.rs]
+                        rs.Qj = None
+                    else:
+                        rs.Vj = None
+                        rs.Qj = self.regs_int.qi[instr.rs]
 
-                    if instr.name in ("LW", "FLD"):
+                    rs.A = imm
+                    rs.op = instr.name
+
+                    # -------- LOAD --------
+                    if instr.name in ("LW", "LD"):
                         rs.dest = instr.rt
                         rs.Vk = rs.Qk = None
-                        self.regs.qi[instr.rt] = rs.name
-                    else:  # SW / FSD
+                        self.regs_int.qi[instr.rt] = rs.name
+
+                    elif instr.name == "FLD":
+                        rs.dest = instr.rt
+                        rs.Vk = rs.Qk = None
+                        self.regs_float.qi[instr.rt] = rs.name
+
+                    # -------- STORE --------
+                    else:
                         rs.dest = None
-                        rs.Vk = self.regs.fp[instr.rt] if self.regs.qi[instr.rt] is None else None
-                        rs.Qk = self.regs.qi[instr.rt]
+                        if instr.name in ("SW", "SD"):
+                            if self.regs_int.qi[instr.rt] is None:
+                                rs.Vk = self.regs_int.val[instr.rt]
+                                rs.Qk = None
+                            else:
+                                rs.Vk = None
+                                rs.Qk = self.regs_int.qi[instr.rt]
+                        else:  # FSD
+                            if self.regs_float.qi[instr.rt] is None:
+                                rs.Vk = self.regs_float.val[instr.rt]
+                                rs.Qk = None
+                            else:
+                                rs.Vk = None
+                                rs.Qk = self.regs_float.qi[instr.rt]
 
                     self.pc += WORD_SIZE
                     return
-
                 # -----------------------------
-                # FP ALU (FADD.D, FMUL.D, etc.)
+                # FP ALU (FADD.D, FSUB.D, FMUL.D, FDIV.D)
                 # -----------------------------
-                rs.dest = instr.rd
+                rs.dest = instr.rd  # destino SEMPRE FP
 
-                rs.Vj = self.regs.fp[instr.rs] if self.regs.qi[instr.rs] is None else None
-                rs.Qj = self.regs.qi[instr.rs]
+                # Operando rs (FP)
+                if self.regs_float.qi[instr.rs] is None:
+                    rs.Vj = self.regs_float.val[instr.rs]
+                    rs.Qj = None
+                else:
+                    rs.Vj = None
+                    rs.Qj = self.regs_float.qi[instr.rs]
 
-                rs.Vk = self.regs.fp[instr.rt] if self.regs.qi[instr.rt] is None else None
-                rs.Qk = self.regs.qi[instr.rt]
+                # Operando rt (FP)
+                if self.regs_float.qi[instr.rt] is None:
+                    rs.Vk = self.regs_float.val[instr.rt]
+                    rs.Qk = None
+                else:
+                    rs.Vk = None
+                    rs.Qk = self.regs_float.qi[instr.rt]
 
-                self.regs.qi[instr.rd] = rs.name
+                # Marca o destino FP como pendente
+                self.regs_float.qi[instr.rd] = rs.name
+
                 self.pc += WORD_SIZE
                 return
+            
 
         print(f"Nenhuma estação de reserva disponível para instrução em PC={self.pc}: {instr}")
         
         # ---------------- Write Result (CDB) ----------------
     def write_result(self):
         for fu in [self.fu_add, self.fu_mul, self.fu_mem]:
-            if fu.rs and fu.rs.time == 0:
+            if fu.rs and fu.rs.time <= 0:
                 tag = fu.rs.name
 
                 # STORE: só efetiva na memória e libera a RS
-                if fu.rs.op in ("SW", "FSD"):
-                    self.fu_mem.process(self.memory)  # usa self.fu_mem.rs internamente
+                if fu.rs.op in ("SW", "SD", "FSD"):
+                    self.fu_mem.process(self.memory)
                     fu.rs.clear()
                     fu.rs = None
                     return
@@ -120,13 +192,18 @@ class TomasuloCPU:
 
                 # escreve no registrador aguardando esta tag
                 for i in range(32):
-                    if self.regs.qi[i] == tag:
-                        self.regs.fp[i] = result
-                        self.regs.qi[i] = None
+                    if self.regs_int.qi[i] == tag:
+                        self.regs_int.val[i] = result
+                        self.regs_int.qi[i] = None
+
+                    if self.regs_float.qi[i] == tag:
+                        self.regs_float.val[i] = result
+                        self.regs_float.qi[i] = None
+
 
                 # broadcast (CDB): atualiza dependências
                 # IMPORTANTE: incluir rs_store para stores dependentes destravarem
-                for rs in self.rs_add + self.rs_mul + self.rs_store:
+                for rs in self.rs_add + self.rs_mul + self.rs_store + self.rs_load:
                     if rs.Qj == tag:
                         rs.Vj = result
                         rs.Qj = None
@@ -146,7 +223,7 @@ class TomasuloCPU:
             (self.fu_mul, self.rs_mul),
             (self.fu_mem, self.rs_load + self.rs_store)
         ]:
-            if fu.rs:
+            if fu.rs and fu.rs.time > 0:
                 fu.rs.time -= 1
             else:
                 for rs in pool:
@@ -165,4 +242,17 @@ class TomasuloCPU:
     def finished(self):
         return self.pc >= len(self.program) * WORD_SIZE
 
-    
+    def init_state(self):
+        self.regs_float.val[0] = 2.0
+        self.regs_float.val[2] = -1.0
+        self.regs_float.val[4] = -1.0
+        self.regs_float.val[6] = -1.0
+        
+    def init_memory(self):
+        for i in range(32):
+            self.memory.store_double(i * 8, float(i + 1))
+
+    # Vetor B
+        for i in range(32):
+            self.memory.store_double(256 + i * 8, 10.0)
+        

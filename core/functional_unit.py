@@ -1,3 +1,4 @@
+from core import memory
 from core.reservation_station import ReservationStation
 
 
@@ -47,6 +48,9 @@ class MemFunctionalUnit(FunctionalUnit):
 
         if self.rs.op == "LW":
             return memory.load_word(addr)
+        
+        if self.rs.op == "LD":
+            return memory.load_dword(addr)
 
         if self.rs.op == "FLD":
             return memory.load_double(addr)
@@ -54,9 +58,12 @@ class MemFunctionalUnit(FunctionalUnit):
         if self.rs.op == "SW":
             memory.store_word(addr, int(self.rs.Vk))
             return None
+        
+        if self.rs.op == "SD":
+            memory.store_dword(addr, int(self.rs.Vk))
 
         if self.rs.op == "FSD":
-            memory.store_double(addr, int(self.rs.Vk))
+            memory.store_double(addr, self.rs.Vk)
             return None
 
         raise ValueError(f"Operação desconhecida na unidade de memória: {self.rs.op}")

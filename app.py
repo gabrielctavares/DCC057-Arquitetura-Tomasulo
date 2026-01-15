@@ -90,12 +90,21 @@ if cpu:
     # =========================
     # Registradores
     # =========================
+    st.subheader("Registradores Inteiros")
+    st.table([
+        {
+            "Registrador": f"R{i}",
+            "Valor": cpu.regs_int.val[i],
+            "Qi": cpu.regs_int.qi[i]
+        }
+        for i in range(8)
+    ])
     st.subheader("Registradores de Ponto Flutuante")
     st.table([
         {
             "Registrador": f"F{i}",
-            "Valor": cpu.regs.fp[i],
-            "Qi": cpu.regs.qi[i]
+            "Valor": cpu.regs_float.val[i],
+            "Qi": cpu.regs_float.qi[i]
         }
         for i in range(8)
     ])
@@ -115,7 +124,7 @@ if cpu:
             "Qk": rs.Qk,
             "Time": rs.time
         }
-        for rs in cpu.rs_add + cpu.rs_mul
+        for rs in cpu.rs_add + cpu.rs_mul + cpu.rs_load + cpu.rs_store 
     ])
 
 
@@ -146,8 +155,8 @@ if cpu:
     st.table(uf_data)
 
 
-    st.subheader("Memória de Dados (palavras de 4 bytes)")
+    st.subheader("Memória de Dados (palavras de 8 bytes)")
 
-    mem_table = cpu.memory.dump_words()
+    mem_table = cpu.memory.dump_doubles()
 
     st.dataframe(mem_table, height=300)

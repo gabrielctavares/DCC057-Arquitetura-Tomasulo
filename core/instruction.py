@@ -6,7 +6,6 @@ class Instruction:
         self.raw = raw
         self.opcode = (raw >> 26) & 0b111111
         self.rs     = (raw >> 21) & 0b11111
-        self.rs     = (raw >> 21) & 0b11111
         self.rt     = (raw >> 16) & 0b11111
         self.rd     = (raw >> 11) & 0b11111
         self.shamt  = (raw >> 6)  & 0b11111

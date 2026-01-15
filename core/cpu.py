@@ -35,7 +35,8 @@ class TomasuloCPU:
 
   
     def issue(self):
-        if self.branch_pending:
+        busy_rs = any(rs.busy for rs in self.rs_add + self.rs_mul + self.rs_load + self.rs_store)
+        if busy_rs or self.branch_pending:
             return
 
         instr = self.fetch()

@@ -16,9 +16,10 @@ class AddFunctionalUnit(FunctionalUnit):
         super().__init__("FPAdd", 3)
 
     def process(self):
-        if self.rs.op == "FADD":
+        op_base = self.rs.op.split('.')[0]
+        if op_base == "FADD":
             return self.rs.Vj + self.rs.Vk
-        elif self.rs.op == "FSUB":
+        elif op_base == "FSUB":
             return self.rs.Vj - self.rs.Vk
         else:
             raise ValueError(f"Operação desconhecida na unidade de adição: {self.rs.op}")
@@ -28,9 +29,10 @@ class MulFunctionalUnit(FunctionalUnit):
         super().__init__("FPMul", 5)
 
     def process(self):
-        if self.rs.op == "FMUL":
+        op_base = self.rs.op.split('.')[0]
+        if op_base == "FMUL":
             return self.rs.Vj * self.rs.Vk
-        elif self.rs.op == "FDIV":
+        elif op_base == "FDIV":
             return self.rs.Vj / self.rs.Vk
         else:
             raise ValueError(f"Operação desconhecida na unidade de multiplicação: {self.rs.op}")

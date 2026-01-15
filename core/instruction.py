@@ -5,30 +5,22 @@ class Instruction:
     def __init__(self, raw):
         self.raw = raw
 
-        # Campos comuns
         self.opcode = (raw >> 26) & 0b111111
         self.imm    = raw & 0xFFFF
         self.funct  = raw & 0b111111
 
         base = OPCODE_TABLE.get(self.opcode, "UNKNOWN")
 
-        # -------------------------
-        # COP1 (FP instructions)
-        # -------------------------
         if base == "COP1":
             self.fmt = (raw >> 21) & 0b11111
             self.ft  = (raw >> 16) & 0b11111
             self.fs  = (raw >> 11) & 0b11111
             self.fd  = (raw >> 6)  & 0b11111
 
-            # Mapear para interface uniforme do Tomasulo
             self.rs = self.fs
             self.rt = self.ft
             self.rd = self.fd
 
-        # -------------------------
-        # Inteiras / memória
-        # -------------------------
         else:
             self.rs    = (raw >> 21) & 0b11111
             self.rt    = (raw >> 16) & 0b11111

@@ -42,7 +42,7 @@ class TomasuloCPU:
 
         print(f"Issuing instruction at PC={self.pc}: {instr}")
 
-        # ---------------- INTEIRO (SEM RS) ----------------
+        # ---------------- INTEIRO  ----------------
         if instr.name == "DADDUI":
             imm = instr.imm if instr.imm < 0x8000 else instr.imm - 0x10000
             print(f"  Executando DADDUI R{instr.rt}, R{instr.rs}, {imm}")
@@ -177,14 +177,14 @@ class TomasuloCPU:
             if fu.rs and fu.rs.time <= 0:
                 tag = fu.rs.name
 
-                # STORE: só efetiva na memória e libera a RS
+                # STORE: efetiva na memória e libera a RS
                 if fu.rs.op in ("SW", "SD", "FSD"):
                     self.fu_mem.process(self.memory)
                     fu.rs.clear()
                     fu.rs = None
                     return
 
-                # LOAD ou operação FP-ALU: gera resultado
+                # gera resultado
                 if fu is self.fu_mem:
                     result = fu.process(self.memory)
                 else:
@@ -202,7 +202,6 @@ class TomasuloCPU:
 
 
                 # broadcast (CDB): atualiza dependências
-                # IMPORTANTE: incluir rs_store para stores dependentes destravarem
                 for rs in self.rs_add + self.rs_mul + self.rs_store + self.rs_load:
                     if rs.Qj == tag:
                         rs.Vj = result

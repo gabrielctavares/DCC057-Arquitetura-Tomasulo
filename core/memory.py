@@ -40,7 +40,7 @@ class DataMemory:
 
     def store_double(self, addr, value):
         self.check_addr(addr, 8)
-        data = struct.pack('<d', value)  # double IEEE-754, little endian
+        data = struct.pack('<d', value)  
         for i in range(8):
             self.mem[addr + i] = data[i]
 

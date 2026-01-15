@@ -15,14 +15,17 @@ class TomasuloCPU:
         self.memory = DataMemory()
 
         self.rs_add = [ReservationStation(f"Add{i}") for i in range(ADD_RESERVATION_STATIONS)]
-        self.rs_mul = [ReservationStation(f"Mul{i}") for i in range(MUL_RESERVATION_STATIONS)]        
+        self.rs_mul = [ReservationStation(f"Mul{i}") for i in range(MUL_RESERVATION_STATIONS)]
         self.rs_load = [ReservationStation(f"Load{i}") for i in range(MEM_RESERVATION_STATIONS)]
         self.rs_store = [ReservationStation(f"Store{i}") for i in range(MEM_RESERVATION_STATIONS)]
-        
 
         self.fu_add = AddFunctionalUnit()
         self.fu_mul = MulFunctionalUnit()
         self.fu_mem = MemFunctionalUnit()
+
+        self.branch_pending = False
+        self.branch_instr = None
+
 
     def fetch(self):
         idx = self.pc // WORD_SIZE
@@ -30,8 +33,11 @@ class TomasuloCPU:
             return Instruction(self.program[idx])
         return None
 
-    # ---------------- Issue ----------------
+  
     def issue(self):
+        if self.branch_pending:
+            return
+
         instr = self.fetch()
         if instr is None:
             return
@@ -40,15 +46,19 @@ class TomasuloCPU:
 
         rs_pool = None
         match instr.name:
-            case "FADD.D" | "FSUB.D": rs_pool = self.rs_add
-            case "FMUL.D" | "FDIV.D": rs_pool = self.rs_mul                                  
-            case "LW": rs_pool = self.rs_load
-            case "SW": rs_pool = self.rs_store
-            case "FLD": rs_pool = self.rs_load
-            case "FSD": rs_pool = self.rs_store
-            case "BEQ" | "BNEZ" | "BNE": 
-                self.pc += WORD_SIZE
+            case "FADD.D" | "FSUB.D":
+                rs_pool = self.rs_add
+            case "FMUL.D" | "FDIV.D":
+                rs_pool = self.rs_mul
+            case "LW" | "FLD":
+                rs_pool = self.rs_load
+            case "SW" | "FSD":
+                rs_pool = self.rs_store
+            case "BEQ" | "BNE" | "BNEZ":
+                self.branch_pending = True
+                self.branch_instr = instr
                 return
+
             case _:
                 raise ValueError(f"Instrução desconhecida: {instr.name}")
 
@@ -57,24 +67,19 @@ class TomasuloCPU:
                 rs.busy = True
                 rs.op = instr.name
 
-                # sign extend do imediato
                 imm = instr.imm if instr.imm < 0x8000 else instr.imm - 0x10000
 
-                # -----------------------------
-                # LOAD / STORE (LW, SW, FLD, FSD)
-                # -----------------------------
+                # -------- LOAD / STORE --------
                 if instr.name in ("LW", "SW", "FLD", "FSD"):
-                    # base address vem de fp[rs] (modelo atual do projeto)
                     rs.Vj = self.regs.fp[instr.rs] if self.regs.qi[instr.rs] is None else None
                     rs.Qj = self.regs.qi[instr.rs]
-
-                    rs.A = imm  # offset
+                    rs.A = imm
 
                     if instr.name in ("LW", "FLD"):
                         rs.dest = instr.rt
                         rs.Vk = rs.Qk = None
                         self.regs.qi[instr.rt] = rs.name
-                    else:  # SW / FSD
+                    else:
                         rs.dest = None
                         rs.Vk = self.regs.fp[instr.rt] if self.regs.qi[instr.rt] is None else None
                         rs.Qk = self.regs.qi[instr.rt]
@@ -82,9 +87,7 @@ class TomasuloCPU:
                     self.pc += WORD_SIZE
                     return
 
-                # -----------------------------
-                # FP ALU (FADD.D, FMUL.D, etc.)
-                # -----------------------------
+                # -------- FP ALU --------
                 rs.dest = instr.rd
 
                 rs.Vj = self.regs.fp[instr.rs] if self.regs.qi[instr.rs] is None else None
@@ -97,35 +100,52 @@ class TomasuloCPU:
                 self.pc += WORD_SIZE
                 return
 
-        print(f"Nenhuma estação de reserva disponível para instrução em PC={self.pc}: {instr}")
-        
-        # ---------------- Write Result (CDB) ----------------
+        print(f"Nenhuma RS disponível para PC={self.pc}: {instr}")
+
+
+    def resolve_branch(self):
+        instr = self.branch_instr
+
+        rs_val = self.regs.fp[instr.rs]
+        rt_val = self.regs.fp[instr.rt] if instr.name != "BNEZ" else 0
+
+        take = False
+        if instr.name == "BEQ":
+            take = (rs_val == rt_val)
+        elif instr.name == "BNE":
+            take = (rs_val != rt_val)
+        elif instr.name == "BNEZ":
+            take = (rs_val != 0)
+
+        next_pc = self.pc + WORD_SIZE
+
+        if take:
+            next_pc += instr.imm << 2
+
+        self.pc = next_pc
+
+        self.branch_pending = False
+        self.branch_instr = None
+
+    # ---------------- Write Result ----------------
     def write_result(self):
         for fu in [self.fu_add, self.fu_mul, self.fu_mem]:
             if fu.rs and fu.rs.time == 0:
                 tag = fu.rs.name
 
-                # STORE: só efetiva na memória e libera a RS
                 if fu.rs.op in ("SW", "FSD"):
-                    self.fu_mem.process(self.memory)  # usa self.fu_mem.rs internamente
+                    self.fu_mem.process(self.memory)
                     fu.rs.clear()
                     fu.rs = None
                     return
 
-                # LOAD ou operação FP-ALU: gera resultado
-                if fu is self.fu_mem:
-                    result = fu.process(self.memory)
-                else:
-                    result = fu.process()
+                result = fu.process(self.memory) if fu is self.fu_mem else fu.process()
 
-                # escreve no registrador aguardando esta tag
                 for i in range(32):
                     if self.regs.qi[i] == tag:
                         self.regs.fp[i] = result
                         self.regs.qi[i] = None
 
-                # broadcast (CDB): atualiza dependências
-                # IMPORTANTE: incluir rs_store para stores dependentes destravarem
                 for rs in self.rs_add + self.rs_mul + self.rs_store:
                     if rs.Qj == tag:
                         rs.Vj = result
@@ -138,7 +158,6 @@ class TomasuloCPU:
                 fu.rs = None
                 return
 
-    
     # ---------------- Execute ----------------
     def execute(self):
         for fu, pool in [
@@ -154,15 +173,24 @@ class TomasuloCPU:
                         fu.rs = rs
                         rs.time = fu.latency
                         break
-  
 
     def step(self):
         self.cycle += 1
         self.write_result()
         self.execute()
-        self.issue()
+
+        if self.branch_pending:
+            self.resolve_branch()
+        else:
+            self.issue()
 
     def finished(self):
-        return self.pc >= len(self.program) * WORD_SIZE
-
-    
+        busy_rs = any(
+            rs.busy for rs in
+            self.rs_add + self.rs_mul + self.rs_load + self.rs_store
+        )
+        return (
+            self.pc >= len(self.program) * WORD_SIZE
+            and not busy_rs
+            and not self.branch_pending
+        )

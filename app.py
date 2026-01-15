@@ -72,7 +72,7 @@ if cpu:
     col1, col2 = st.columns(2)
 
     with col1:
-        if st.button("Executar 1 ciclo"):
+        if st.button("Executar 1 ciclo") and (not cpu.finished()):
             cpu.step()
 
     with col2:

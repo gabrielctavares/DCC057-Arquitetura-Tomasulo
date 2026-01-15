@@ -1,7 +1,11 @@
 class DataMemory:
     def __init__(self, size_bytes=512):
         self.size = size_bytes
-        self.mem = [0] * size_bytes  # memória byte a byte
+        self.mem = [0] * size_bytes
+
+        # --- TESTE: padrão visível ---
+        for i in range(8):
+            self.mem[i] = i + 1
 
     def check_addr(self, addr, length):
         if addr < 0 or addr + length > self.size:

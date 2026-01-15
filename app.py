@@ -39,6 +39,7 @@ else:
         height=220,
         value=st.session_state.program_text
     )
+    st.session_state.program_text = program_text
 
 # =========================
 # Botões de controle

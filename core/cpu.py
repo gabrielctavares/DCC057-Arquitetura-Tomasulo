@@ -106,6 +106,8 @@ class TomasuloCPU:
     def resolve_branch(self):
         instr = self.branch_instr
 
+        imm = instr.imm if instr.imm < 0x8000 else instr.imm - 0x10000
+
         rs_val = self.regs.fp[instr.rs]
         rt_val = self.regs.fp[instr.rt] if instr.name != "BNEZ" else 0
 
@@ -117,15 +119,18 @@ class TomasuloCPU:
         elif instr.name == "BNEZ":
             take = (rs_val != 0)
 
+        # PC base = PC + 4
         next_pc = self.pc + WORD_SIZE
 
+        # Branch tomado → deslocamento relativo
         if take:
-            next_pc += instr.imm << 2
+            next_pc += imm << 2
 
         self.pc = next_pc
 
         self.branch_pending = False
         self.branch_instr = None
+
 
     # ---------------- Write Result ----------------
     def write_result(self):
@@ -159,6 +164,17 @@ class TomasuloCPU:
                 return
 
     # ---------------- Execute ----------------
+    def loop_finished(self):
+        if self.fu_add.rs or self.fu_mul.rs or self.fu_mem.rs:
+            return False
+
+        for rs in self.rs_add + self.rs_mul + self.rs_load + self.rs_store:
+            if rs.busy:
+                return False
+
+        return True
+
+    
     def execute(self):
         for fu, pool in [
             (self.fu_add, self.rs_add),
@@ -180,9 +196,11 @@ class TomasuloCPU:
         self.execute()
 
         if self.branch_pending:
-            self.resolve_branch()
+            if self.loop_finished():
+                self.resolve_branch()
         else:
             self.issue()
+
 
     def finished(self):
         busy_rs = any(
